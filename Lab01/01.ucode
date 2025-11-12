@@ -1,0 +1,98 @@
+// ====================== PRIBAVI =======================
+fetch0: a_sel=7, b_sel=7, alu_sel=OR, mar_sel=LOAD; // MAR <- PC
+fetch1: ir1_sel=LOAD, read, if wait then goto fetch1 endif; // IR_high <- MEM(MAR)
+fetch2: a_sel=7, c_in, alu_sel=ADDA, r7_write; // PC <- PC+1
+fetch3: a_sel=7, b_sel=7, alu_sel=OR, mar_sel=LOAD; // MAR <- PC
+fetch4: ir0_sel=LOAD, read, if wait then goto fetch4 endif; // IR_low <- MEM(MAR)
+fetch5: a_sel=7, c_in, alu_sel=ADDA, r7_write, goto opcode[IR_OPCODE]; // PC <- PC+1
+// ============= DIO OPERACIJSKIH KODOVA =============
+
+// r7 -> PC, r6 -> SR, r5 -> SP
+
+// 0) NOP
+opcode[0]: goto fetch0;
+
+// 1) LOAD_IMMEDIATE (ri <- ir_const8)
+opcode[1]: result_sel=IR_CONST8, ri_sel, goto fetch0;
+
+// 2) ADD (ri <- rj + rk)
+opcode[2]: ri_sel, rj_sel, rk_sel, alu_sel=ADD,
+    if m_7 then goto opcode2.1 else goto opcode2.2 endif;
+
+// 3) HALT
+opcode[3]: goto opcode[3];
+
+// 4) MOVE (ri <- rj)
+opcode[4]: ri_sel, rj_sel, alu_sel=ADDA, goto fetch0;
+
+// 5) LOAD (ri <- MEM[ir_const8])
+// set constant in IR0 to result bus, write to r4, select r4, (r4) + #0 on ALU, load ALU to MAR
+opcode[5]: result_sel=IR_CONST8, r4_write, goto opcode5.0;
+
+// 6) STORE (MEM[(rk)] <- rj)
+opcode[6]: a_sel=4, b_sel=4, alu_sel=XOR, r4_write, goto opcode6.0; // r4 to 0;
+
+// 7) JMP addr
+opcode[7]: result_sel=IR_CONST8, r7_write, goto fetch0;
+
+// 8) JZ (rj == 0) (rk)
+// SUBA is eqivalent to x + 1111 + c_out, if this doesn't generate a carry, then rj was zero
+opcode[8]: rj_sel, alu_sel=SUBA, if c_out then goto fetch0 else goto opcode8.1 endif;
+
+// 9) SUB (ri <- rj - rk)
+opcode[9]: ri_sel, rj_sel, rk_sel, c_in, alu_sel=SUB,
+    if m_7 then goto opcode2.1 else goto opcode2.2 endif;
+
+// 10) SHL (ri <- rj << 1)
+opcode[10]: rj_sel, alu_sel=ADDA, r4_write, goto opcode10.0; // r4 = rj + 0
+
+// 11) LDSP (SP <- MEM[ir_const8])
+opcode[11]: result_sel=IR_CONST8, r5_write, goto fetch0;
+
+// 12) PUSH (MEM[SP] <- rj; --SP)
+opcode[12]: a_sel=5, alu_sel=ADDA, mar_sel=LOAD, goto opcode12.0; // MAR <- SP
+
+// 13) POP (++SP, ri <- MEM[SP];)
+opcode[13]: a_sel=5, c_in, alu_sel=ADDA, mar_sel=LOAD, r5_write, goto opcode5.1; // MAR <- SP
+
+// 14) CALL (MEM[SP] <- PC; --SP; PC <- ir_const8)
+opcode[14]: a_sel=5, alu_sel=ADDA, mar_sel=LOAD, goto opcode14.0; // MAR <- SP
+
+// 15) RET (++SP; PC <- MEM[SP])
+opcode[15]: a_sel=5, c_in, alu_sel=ADDA, r5_write, goto opcode15.0; // ++SP
+
+
+// ================= DIO EKSTENZIJE ================
+// postavi zastavicu N
+opcode2.1: a_sel=4, b_sel=4, alu_sel=XOR, r4_write; // pomocni registar r4 <- 0
+    a_sel=4, c_in, alu_sel=ADDA, r6_write, goto fetch0; // r4=0 + c_in=1 -> r6 (SR)
+
+// obrisi zastavicu N
+opcode2.2: a_sel=4, b_sel=4; alu_sel=XOR, r4_write; // pomocni registar r4 <- 0
+    a_sel=4, alu_sel=ADDA, r6_write, goto fetch0; // r4=0 -> r6 (SR)
+
+// load (r4) + #0 on ALU, load ALU to MAR
+opcode5.0: a_sel=4, alu_sel=ADDA, mar_sel=LOAD, goto opcode5.1;
+// load value from memory into IR0, then go and load that into ri, MAR is already set up
+opcode5.1: ir0_sel=LOAD, read, if wait then goto opcode5.1 else goto opcode[1] endif;
+
+// writing to memory, MAR and MDR are already set up
+opcode6.0: rk_sel, a_sel=4, alu_sel=OR, mar_sel=LOAD;  // select 0|(rk) to alu bus, load to MAR,
+    rj_sel, alu_sel=OR, mdr_sel=LOAD_ALU, goto opcode6.1; // select rj to alu bus, load to MDR
+opcode6.1: write, if wait then goto opcode6.1 else goto fetch0 endif;
+
+opcode8.1: rj_sel, rk_sel, alu_sel=OR, r7_write, goto fetch0; // PC <- rk
+
+opcode10.0: ri_sel, rj_sel, b_sel=4, alu_sel=ADD, goto fetch0; // ri = r4 + r4
+
+opcode12.0: rj_sel, alu_sel=ADDA, mdr_sel=LOAD_ALU; // MDR <- (rj)
+    a_sel=5, alu_sel=SUBA, r5_write, goto opcode6.1; // --SP
+
+opcode14.0: a_sel=7, alu_sel=ADDA, mdr_sel=LOAD_ALU; // MDR <- PC
+opcode14.1: write, if wait then goto opcode14.1 endif; // MEM[SP] <- PC
+    a_sel=5, alu_sel=SUBA, r5_write; // --SP
+    result_sel=IR_CONST8, r7_write, goto opcode6.1; // PC <- ir_const8
+
+opcode15.0: a_sel=5, alu_sel=ADDA, mar_sel=LOAD; // MAR <- SP
+opcode15.1: ir0_sel=LOAD, read, if wait then goto opcode15.1 endif; // IR0 <- MEM[SP]
+    result_sel=IR_CONST8, r7_write, goto fetch0; // PC <- MEM[SP]
