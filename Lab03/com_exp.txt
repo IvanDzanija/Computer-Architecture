@@ -1,0 +1,2 @@
+C++ standard endian armv7-clang: https://godbolt.org/z/xWhKvWP1q
+C++ standard endian x86-64-gcc: https://godbolt.org/z/9dhn5Pz86
